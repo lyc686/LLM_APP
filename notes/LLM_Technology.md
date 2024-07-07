@@ -61,23 +61,13 @@
 
 <img src="../picts/image-20240705154034783.png" style="zoom:60%;margin-left:0px;" />
 
-### 2.3 评审规则
-
-参赛选手需**基于讯飞星火大模型Spark Max**完成任务，可使用大模型微调。报名参赛选手将获得API和微调训练资源福利，详情请登录[讯飞开放平台](https://www.xfyun.cn/)和[大模型训练平台](https://training.xfyun.cn/overview)查看。
-
-### 2.4 数据说明
-
-赛题提供了184条真实场景的群聊对话数据，包括训练数据129条，测试数据55条。字段提取的难易程度分为1、2、3三种，<font color="blue"> 注意：可为空的字段，当判定无相应信息、无法做出判断等情况，统一取值为空字符串。对于非单值字段，请使用列表（list）来表示</font>，具体得分规则如下：
 
 
-
-<img src="../picts/image-20240705154238528.png" style="zoom:60%;margin-left:0px;" />
+参赛选手需**基于讯飞星火大模型Spark Max**完成任务，可使用大模型微调。报名参赛选手将获得API和微调训练资源福利，详情请登录[讯飞开放平台](https://www.xfyun.cn/)和[大模型训练平台](https://training.xfyun.cn/overview)查看。其中赛题提供了184条真实场景的群聊对话数据，需要我们对数据进行读取、清洗以及要素提取。
 
 ### 2.5 Baseline讲解
 
-[基于星火大模型的群聊对话分角色要素提取挑战-baseline](https://aistudio.baidu.com/projectdetail/8090362?sUid=784476&shared=1&ts=1719309432555)，baseline**基于讯飞星火大模型V3.5**模型对群聊对话数据进行字段的抽取。
-
-首先对数据进行读取显示之后我们发现，数据是非常杂乱的：
+赛事提供的Baseline：[基于星火大模型的群聊对话分角色要素提取挑战-baseline](https://aistudio.baidu.com/projectdetail/8090362?sUid=784476&shared=1&ts=1719309432555)，首先我们可以读取比赛提供的.json文件查看对话内容：
 
 ```python
 import json
@@ -103,7 +93,7 @@ print(train_data[100]['chat_text'])
 
 <img src="../picts/image-20240705155546804.png" style="zoom:60%;margin-left:0px;" />
 
-所以我们接下来就需要设计`prompt`来设计大模型的理解规则：
+可以看到提供的.json文件中包含了大量的对话信息，所以对其进行有效的提取还是充满挑战的，接下来设计`prompt`输入给大模型来提取要素，下面的是baseline提供的prompt：
 
 ````python
 # prompt 设计
@@ -177,109 +167,48 @@ info: Array<Dict(
 """
 ````
 
-完成之后，我们调用大模型进行初步的Baseline测试发现，以下的几个问题：
+完成之后，我们调用大模型进行初步的Baseline测试，并进行分数测试，这里我同时放上了我微调了一下prompt之后的结果对比 (16.40606是微调了prompt的，17.34318是baseline的)：
 
-1. 大模型总是不能直接输出python直接可读取的json格式，如：
+<img src="../picts/image-20240705161025530.png" style="zoom:100%;margin-left:0px" />
 
-   <img src="../picts/image-20240705155853708.png" style="zoom:60%;margin-left:0px;" />
+我先分析一下自己通过调节Prompt来进行微调的一个实验结果，调整prompt中的提取步骤为①②③的思维链格式:
 
-   ```python
-   def convert_all_json_in_text_to_dict(text):
-       """提取LLM输出文本中的json字符串"""
-       dicts, stack = [], []
-       for i in range(len(text)):
-           if text[i] == '{':
-               stack.append(i)
-           elif text[i] == '}':
-               begin = stack.pop()
-               if not stack:
-                   dicts.append(json.loads(text[begin:i+1]))
-       return dicts
-   ```
+````python
+请你依次执行以下步骤：
+①请分析以下群聊对话记录，并根据上述格式提取信息，确保提取的信息和表单属性类型完全匹配，不要试图编造信息。
+**对话记录：**
+```
+{content}
+```
+②基于提供的内容，反思回答中提取的信息有没有不正确或者不完全匹配的内容，如果有则根据正确的和完全匹配的内容对不正确的部分进行修正。
+
+③严格按照以下要求输出：
+请将提取的信息根据给定的输出格式以一个可解析的JSON格式输出，不要添加任何澄清信息，输出必须遵循上面的模式，不要添加任何没有出现在模式中的附加字段，不要随意删除字段。
+````
+
+截取了两份，提取出来的要素对比如下：左边是baseline，右边是微调了prompt：
+
+<img src="../picts/image-20240707135805295.png" style="zoom:80%" />
+
+<img src="../picts/image-20240707135853708.png" style="zoom:80%" />
 
 
 
-2. 大模型偶尔会出现缺少字段的情况，故使用`check_and_complete_json_format`函数对大模型抽取的结果进行**字段格式的检查**以及**缺少的字段进行补全。**
 
-   ```python
-   import json
-   
-   class JsonFormatError(Exception):
-       def __init__(self, message):
-           self.message = message
-           super().__init__(self.message)
-   
-   def check_and_complete_json_format(data):
-       required_keys = {
-           "基本信息-姓名": str,
-           "基本信息-手机号码": str,
-           "基本信息-邮箱": str,
-           "基本信息-地区": str,
-           "基本信息-详细地址": str,
-           "基本信息-性别": str,
-           "基本信息-年龄": str,
-           "基本信息-生日": str,
-           "咨询类型": list,
-           "意向产品": list,
-           "购买异议点": list,
-           "客户预算-预算是否充足": str,
-           "客户预算-总体预算金额": str,
-           "客户预算-预算明细": str,
-           "竞品信息": str,
-           "客户是否有意向": str,
-           "客户是否有卡点": str,
-           "客户购买阶段": str,
-           "下一步跟进计划-参与人": list,
-           "下一步跟进计划-时间点": str,
-           "下一步跟进计划-具体事项": str
-       }
-   
-       if not isinstance(data, list):
-           raise JsonFormatError("Data is not a list")
-   
-       for item in data:
-           if not isinstance(item, dict):
-               raise JsonFormatError("Item is not a dictionary")
-           for key, value_type in required_keys.items():
-               if key not in item:
-                   item[key] = [] if value_type == list else ""
-               if not isinstance(item[key], value_type):
-                   raise JsonFormatError(f"Key '{key}' is not of type {value_type.__name__}")
-               if value_type == list and not all(isinstance(i, str) for i in item[key]):
-                   raise JsonFormatError(f"Key '{key}' does not contain all strings in the list")
-   
-       return data
-   ```
 
 
 ## Task3、进阶Baseline2微调
 
-在开始这一节笔记之前，我先分析一下自己通过调节Prompt来进行微调的一个实验结果，调整prompt中的提取步骤为①②③的思维链格式，结果对比如下：
+微调部分我也是参考的教程中的微调，主要从数据集的二次制作以及模型训练微调两部分进行优化。
 
-<img src="../picts/image-20240705161025530.png" style="zoom:100%" />
+对原群聊对话设计了一个总结Prompt，目的是将原始对话内容进行精简。方便做微调数据。一方面直接将群聊对话作为数据集的话，会导致上下文过长，超过限制。还有上下文太长会导致抽取效果变差。过长的上下文也会导致训练时长和费用倍增。将对话中的内容按照测试结果表单的要求划分为了以下四部分：
 
-将生成的.json进行对比：
+* **客户基本信息**：包括姓名、手机号码、邮箱、地区、详细地址、性别、年龄和生日。
+* **客户意向与预算信息**： 包括咨询类型、意向产品、购买异议点、预算是否充足、总体预算金额以及预算明细。
+* **客户购买准备情况**：包括竞品信息、客户是否有意向、客户是否有卡点以及客户购买阶段。
+* **跟进计划信息**： 包括参与人、时间点和具体事项。
 
-<img src="../picts/image-20240705161103611.png" style="zoom:50%" /><img src="../picts/image-20240705161117669.png" style="zoom:50%" />
-
-<img src="../picts/image-20240705161138235.png" style="zoom:50%" /><img src="../picts/image-20240705161150078.png" style="zoom:50%" />
-
-肉眼来看的话甚至调整后的结果还稍微好一点。
-
-### 3.1 数据集制作
-
-这里我们对原群聊对话设计了一个总结Prompt，目的是将原始对话内容进行精简。方便做微调数据。一方面直接将群聊对话作为数据集的话，会导致上下文过长，超过限制。还有上下文太长会导致抽取效果变差。过长的上下文也会导致训练时长和费用倍增。
-
-
-
-这个prompt相较于baseline区别比较明显，对需要抽取的任务做了一次总结。总结了四个方面：
-
-**客户基本信息**：需要从中区分出客户角色，并得到客户基本信息，其中包括姓名、手机号码、邮箱、地区、详细地址、性别、年龄和生日
-**客户意向与预算信息**： 客户意向与预算信息包括咨询类型、意向产品、购买异议点、预算是否充足、总体预算金额以及预算明细
-**客户购买准备情况**：户购买准备情况包括竞品信息、客户是否有意向、客户是否有卡点以及客户购买阶段
-**跟进计划信息**： 跟进计划信息包括参与人、时间点和具体事项，这些信息用于指导销售团队在未来的跟进工作中与客户互动
-
-通过总结后的数据一方面节约了微调的运算资源，一方面也让数据被清洗后更容易被模型理解，达到更好的抽取效果。
+对应的`Prompt`如下所示：
 
 ```python
 content = ''
@@ -302,19 +231,7 @@ prompt = f'''
 '''
 ```
 
-然后设计了一个jsonl_data是用来训练的规范单行数据，需要由训练数据组成一个jsonl文件（每行是一个json数据的文件），格式如下：
-
-```python
-jsonl_data = {"instruction":"假设你是一个智能交互助手，基于用户的输入文本，解析其中语义，抽取关键信息，以json格式生成结构化的语义内容。","input":"请调小空气净化器的湿度到1","output":"{\"intent\":\"CONTROL\",\"slots\":[{\"name\":\"device\",\"normValue\":\"airCleaner\",\"value\":\"空气净化器\"},{\"name\":\"insType\",\"normValue\":\"set\",\"value\":\"调小\"},{\"name\":\"attr\",\"normValue\":\"humidity\",\"value\":\"湿度\"},{\"name\":\"attrValue\",\"normValue\":\"1\",\"value\":\"1\"}],\"sample\":\"请调小空气净化器的湿度到1\"}"}
-
-print(jsonl_data["instruction"])
-print(jsonl_data["input"])
-print(jsonl_data["output"])
-```
-
-<img src="../picts/image-20240705162312421.png"/>
-
-然后我们就可以开始制作我们的数据集(训练集和测试集)啦：
+完成prompt设计后，对应的制作我们读取原始数据集，并生产新的数据集：
 
 ```python
 # 训练集制作
@@ -334,24 +251,6 @@ with open('traindata.jsonl', 'w', encoding='utf-8') as file:
         line_input = line_data["chat_text"] 
         line_output = line_data["infos"]
         content = line_input
-        
-        prompt = f'''
-                你是一个数据分析大师，你需要从群聊对话中进行分析，里面对话的角色中大部分是客服角色，你需要从中区分出有需求的客户，并得到以下四类数据。
-
-                ****群聊对话****
-                {content}
-
-                ****分析数据****
-                客户基本信息：需要从中区分出客户角色，并得到客户基本信息，其中包括姓名、手机号码、邮箱、地区、详细地址、性别、年龄和生日
-                客户意向与预算信息： 客户意向与预算信息包括咨询类型、意向产品、购买异议点、预算是否充足、总体预算金额以及预算明细
-                客户购买准备情况：户购买准备情况包括竞品信息、客户是否有意向、客户是否有卡点以及客户购买阶段
-                跟进计划信息： 跟进计划信息包括参与人、时间点和具体事项，这些信息用于指导销售团队在未来的跟进工作中与客户互动
-
-                ****注意****
-                1.只输出客户基本信息、客户意向与预算信息、客户购买准备情况、跟进计划信息对应的信息，不要输出无关内容
-                2.不要输出分析内容
-                3.输出内容格式为md格式
-                '''
         res = chatbot(prompt=prompt)
         # print(res)
         line_write = {
@@ -364,52 +263,13 @@ with open('traindata.jsonl', 'w', encoding='utf-8') as file:
             file.write(json.dumps(line_write, ensure_ascii=False) + '\n')  # '\n' 用于在每行末尾添加换行符
 ```
 
-```python
-# 验证集制作（提交版本）
-# input,target
-
-import json
-
-# 打开并读取JSON文件
-with open('test_data.json', 'r', encoding='utf-8') as file:
-    data_test = json.load(file)
-    
-import csv
-
-# 打开一个文件用于写入CSV数据
-with open('test.csv', 'w', newline='', encoding='utf-8') as csvfile:
-    # 创建一个csv writer对象
-    csvwriter = csv.writer(csvfile)
-    csvwriter.writerow(["input","target"])
-    # 遍历数据列表，并将每一行写入CSV文件
-    for line_data in tqdm(data_test):
-        content = line_data["chat_text"]
-        prompt = f'''
-                你是一个数据分析大师，你需要从群聊对话中进行分析，里面对话的角色中大部分是客服角色，你需要从中区分出有需求的客户，并得到以下四类数据。
-
-                ****群聊对话****
-                {content}
-
-                ****分析数据****
-                客户基本信息：需要从中区分出客户角色，并得到客户基本信息，其中包括姓名、手机号码、邮箱、地区、详细地址、性别、年龄和生日
-                客户意向与预算信息： 客户意向与预算信息包括咨询类型、意向产品、购买异议点、预算是否充足、总体预算金额以及预算明细
-                客户购买准备情况：户购买准备情况包括竞品信息、客户是否有意向、客户是否有卡点以及客户购买阶段
-                跟进计划信息： 跟进计划信息包括参与人、时间点和具体事项，这些信息用于指导销售团队在未来的跟进工作中与客户互动
-
-                ****注意****
-                1.只输出客户基本信息、客户意向与预算信息、客户购买准备情况、跟进计划信息对应的信息，不要输出无关内容
-                2.不要输出分析内容
-                3.输出内容格式为md格式
-                '''
-        res = chatbot(prompt=prompt)
-        
-        # print(line_data["chat_text"])
-        ## 文件内容校验失败: test.jsonl(不含表头起算)第1行的内容不符合规则，限制每组input和target字符数量总和上限为8000，当前行字符数量：10721
-        line_list = [res, "-"]   
-        csvwriter.writerow(line_list)
-        # break
-```
-
 然后将训练集和测试集上传进行训练即可。
 
 <img src="../picts/image-20240705175930870.png" style="zoom:100%" />
+
+训练完成后使用重新训练的模型，对数据集进行要素提取，对比结果如下所示：
+
+
+
+
+
