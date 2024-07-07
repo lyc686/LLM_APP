@@ -231,45 +231,16 @@ prompt = f'''
 '''
 ```
 
-完成prompt设计后，对应的制作我们读取原始数据集，并生产新的数据集：
-
-```python
-# 训练集制作
-import json
-
-# 打开并读取JSON文件
-with open('train.json', 'r', encoding='utf-8') as file:
-    data = json.load(file)
-
-# 打开一个文件用于写入，如果文件已存在则会被覆盖
-with open('traindata.jsonl', 'w', encoding='utf-8') as file:
-    # 训练集行数(130)不符合要求，范围：1500~90000000
-    # 遍历数据列表，并将每一行写入文件
-    # 这里为了满足微调需求我们重复12次数据集 130*12=1560
-    
-    for line_data in tqdm(data):
-        line_input = line_data["chat_text"] 
-        line_output = line_data["infos"]
-        content = line_input
-        res = chatbot(prompt=prompt)
-        # print(res)
-        line_write = {
-            "instruction":jsonl_data["instruction"],
-            "input":json.dumps(res, ensure_ascii=False),
-            "output":json.dumps(line_output, ensure_ascii=False)
-        }
-        # 因为数据共有130行，为了能满足训练需要的1500条及以上，我们将正常训练数据扩充12倍。
-        for time in range(12):
-            file.write(json.dumps(line_write, ensure_ascii=False) + '\n')  # '\n' 用于在每行末尾添加换行符
-```
-
-然后将训练集和测试集上传进行训练即可。
+完成prompt设计后，对应的制作我们读取原始数据集，并生产新的数据集，然后将训练集和测试集上传进行训练即可。
 
 <img src="../picts/image-20240705175930870.png" style="zoom:100%" />
 
 训练完成后使用重新训练的模型，对数据集进行要素提取，对比结果如下所示：
 
+<font color="red">注意：评测失败的原因是格式没有严格按照要求 (55条结果+每一条结果中必须包括表单所列出的内容)</font>
 
+<img src="../picts/image-20240707145507179.png" style="zoom:100%" />
 
+## Task4、持续上分！
 
-
+有了前面的经验，在这部分我计划首先在prompt中构造思维顺序链，然后对数据进行清洗，去除其中的无关信息，例如\n符号和一些无关网址。并对过长的数据先进行一次削减再训练 （目前只是理论，还没实操出来）。
