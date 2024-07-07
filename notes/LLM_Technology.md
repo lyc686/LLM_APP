@@ -192,7 +192,7 @@ info: Array<Dict(
 
 <img src="../picts/image-20240707135853708.png" style="zoom:80%" />
 
-
+感觉看上去，甚至我微调过的还要更好一点，也许是和标准结果还是有出入吧。
 
 
 
